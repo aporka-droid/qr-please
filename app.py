@@ -3,9 +3,9 @@ import io
 import os
 import re
 import secrets
-import sqlite3
+import psycopg
+from psycopg.rows import dict_row
 from datetime import datetime, timezone
-from pathlib import Path
 from urllib.parse import urlsplit
 
 import qrcode
@@ -16,20 +16,31 @@ from flask import Flask, g, jsonify, render_template, request, send_file
 def create_app(database=None):
     app = Flask(__name__)
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024
-    data_dir = Path(os.environ.get('DATA_DIR', app.instance_path))
-    data_dir.mkdir(parents=True, exist_ok=True)
-    app.config['DATABASE'] = str(database or data_dir / 'codes.sqlite3')
-    with sqlite3.connect(app.config['DATABASE']) as db:
-        db.execute('''CREATE TABLE IF NOT EXISTS codes (
-            id TEXT PRIMARY KEY, owner TEXT NOT NULL, title TEXT NOT NULL,
-            url TEXT NOT NULL, color TEXT NOT NULL, created TEXT NOT NULL
-        )''')
-        db.execute('CREATE INDEX IF NOT EXISTS codes_owner ON codes(owner, created)')
+    database_url = os.environ["DATABASE_URL"]
+
+        with psycopg.connect(database_url) as db:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS codes (
+                    id TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    color TEXT NOT NULL,
+                    created TEXT NOT NULL
+                )
+            """)
+        
+            db.execute("""
+                CREATE INDEX IF NOT EXISTS codes_owner
+                ON codes(owner, created)
+            """)
 
     def connection():
         if 'db' not in g:
-            g.db = sqlite3.connect(app.config['DATABASE'])
-            g.db.row_factory = sqlite3.Row
+            g.db = psycopg.connect(
+                database_url,
+                row_factory=dict_row
+            )
         return g.db
 
     @app.before_request
@@ -65,7 +76,10 @@ def create_app(database=None):
 
     @app.get('/api/codes')
     def history():
-        rows = connection().execute('SELECT id, title, url, color, created FROM codes WHERE owner = ? ORDER BY created DESC', (g.owner,))
+        rows = connection().execute(
+            'SELECT id, title, url, color, created FROM codes WHERE owner = %s ORDER BY created DESC',
+            (g.owner,)
+        )
         return jsonify([dict(row) for row in rows])
 
     @app.post('/api/codes')
@@ -93,18 +107,24 @@ def create_app(database=None):
         if color not in ('#172329', '#174f43', '#203d80', '#793442') or len(title) > 80:
             return jsonify(error='Choose a supported color and a title under 81 characters.'), 400
         db = connection()
-        if db.execute('SELECT COUNT(*) FROM codes WHERE owner = ?', (g.owner,)).fetchone()[0] >= 500:
+        if db.execute(
+            'SELECT COUNT(*) FROM codes WHERE owner = %s',
+            (g.owner,)
+        ).fetchone()['count'] >= 500:
             return jsonify(error='Your history is full. Delete an old code first.'), 400
         item = dict(id=secrets.token_hex(16), title=title or parsed.hostname,
                     url=url, color=color, created=datetime.now(timezone.utc).isoformat())
-        db.execute('INSERT INTO codes VALUES (?, ?, ?, ?, ?, ?)',
+        db.execute('INSERT INTO codes VALUES (%s, %s, %s, %s, %s, %s)',
                    (item['id'], g.owner, item['title'], url, color, item['created']))
         db.commit()
         return jsonify(item), 201
 
     @app.get('/api/codes/<code_id>/<filetype>')
     def download(code_id, filetype):
-        row = connection().execute('SELECT * FROM codes WHERE id = ? AND owner = ?', (code_id, g.owner)).fetchone()
+        row = connection().execute(
+            'SELECT * FROM codes WHERE id = %s AND owner = %s',
+            (code_id, g.owner)
+        ).fetchone()
         if row is None or filetype not in ('png', 'svg'):
             return jsonify(error='Code not found.'), 404
         qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=16, border=4)
@@ -126,7 +146,10 @@ def create_app(database=None):
     @app.delete('/api/codes/<code_id>')
     def delete(code_id):
         db = connection()
-        cursor = db.execute('DELETE FROM codes WHERE id = ? AND owner = ?', (code_id, g.owner))
+        cursor = db.execute(
+            'DELETE FROM codes WHERE id = %s AND owner = %s',
+            (code_id, g.owner)
+        )
         db.commit()
         return (jsonify(ok=True), 200) if cursor.rowcount else (jsonify(error='Code not found.'), 404)
 
