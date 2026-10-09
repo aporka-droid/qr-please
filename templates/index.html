@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#10231f">
     <meta name="description" content="Create, download and keep your custom QR codes in one place.">
     <title>Qrplease — Free QR Code Generator</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -34,7 +35,6 @@
                     <label class="color-choice"><input type="radio" name="color" value="#174f43" checked><span class="swatch forest"></span><span>Ion green</span></label>
                 </div></fieldset>
                 <button class="primary" id="generate" type="submit">Create QR code <span>＋</span></button>
-                <p class="save-note">Automatically saved for your next visit.</p>
                 <p id="form-message" role="status" aria-live="polite"></p>
             </form>
             <div class="preview-panel">
@@ -53,6 +53,6 @@
             <div id="history" class="history-grid"></div>
         </section>
     </main>
-    <footer><span>qr</span><span>MADE TO BE SCANNED</span></footer>
+    <footer><span>qr-please</span><a href="https://github.com/aporka-droid/qr-please" target="_blank" rel="noopener noreferrer">GitHub</a></footer>
 </body>
 </html>

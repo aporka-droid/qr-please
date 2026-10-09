@@ -1,140 +1,162 @@
-const form = document.querySelector('#generator');
-const submit = document.querySelector('#generate');
-const message = document.querySelector('#form-message');
-const history = document.querySelector('#history');
-const historyMessage = document.querySelector('#history-message');
-let codes = [];
-let selectedId = null;
+import hashlib
+import io
+import os
+import re
+import secrets
+import psycopg
+from psycopg.rows import dict_row
+from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
-async function api(path, options = {}) {
-    const response = await fetch(path, {
-        ...options,
-        headers: { 'Content-Type': 'application/json', 'X-QR-Request': '1' }
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Something went wrong. Please try again.');
-    return data;
-}
+import qrcode
+import qrcode.image.svg
+from flask import Flask, g, jsonify, render_template, request, send_file
 
-function selectCode(code) {
-    selectedId = code.id;
-    const image = document.querySelector('#qr-image');
-    image.src = `/api/codes/${code.id}/png`;
-    image.hidden = false;
-    document.querySelector('#empty-preview').hidden = true;
-    document.querySelector('#preview-title').textContent = code.title;
-    document.querySelector('#preview-url').textContent = code.url;
-    document.querySelector('#preview-status').textContent = 'SAVED TO COLLECTION';
-    for (const type of ['png', 'svg']) {
-        const link = document.querySelector(`#${type}-download`);
-        link.href = `/api/codes/${code.id}/${type}?download=1`;
-        link.classList.remove('disabled');
-        link.removeAttribute('aria-disabled');
-    }
-}
 
-function clearPreview() {
-    selectedId = null;
-    document.querySelector('#qr-image').hidden = true;
-    document.querySelector('#empty-preview').hidden = false;
-    document.querySelector('#preview-title').textContent = 'Your next QR code';
-    document.querySelector('#preview-url').textContent = 'Add a URL to get started.';
-    document.querySelector('#preview-status').textContent = 'READY WHEN YOU ARE';
-    for (const type of ['png', 'svg']) {
-        const link = document.querySelector(`#${type}-download`);
-        link.removeAttribute('href');
-        link.classList.add('disabled');
-        link.setAttribute('aria-disabled', 'true');
-    }
-}
+def create_app(database=None):
+    app = Flask(__name__)
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024
+    database_url = os.environ["DATABASE_URL"]
+    
+    with psycopg.connect(database_url) as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS codes (
+                id TEXT PRIMARY KEY,
+                owner TEXT NOT NULL,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                color TEXT NOT NULL,
+                created TEXT NOT NULL
+            )
+        """)
+    
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS codes_owner
+            ON codes(owner, created)
+        """)
 
-function renderHistory() {
-    history.replaceChildren();
-    document.querySelector('#count').textContent = codes.length;
-    historyMessage.hidden = codes.length > 0;
-    historyMessage.textContent = 'No codes yet. Your first one will be saved here.';
-    for (const code of codes) {
-        const card = document.createElement('article');
-        card.className = 'history-card';
-        const image = document.createElement('img');
-        image.src = `/api/codes/${code.id}/png`;
-        image.alt = '';
-        image.loading = 'lazy';
-        const details = document.createElement('div');
-        const title = document.createElement('h3');
-        title.textContent = code.title;
-        const url = document.createElement('p');
-        url.textContent = code.url;
-        url.title = code.url;
-        details.append(title, url);
-        const actions = document.createElement('div');
-        actions.className = 'card-actions';
-        const date = document.createElement('span');
-        date.textContent = new Date(code.created).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-        const buttons = document.createElement('div');
-        const open = document.createElement('button');
-        open.textContent = 'Open';
-        open.setAttribute('aria-label', `Open ${code.title}`);
-        open.onclick = () => {
-            selectCode(code);
-            document.querySelector('#paper').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
-        };
-        const remove = document.createElement('button');
-        remove.textContent = 'Delete';
-        remove.className = 'delete';
-        remove.setAttribute('aria-label', `Delete ${code.title}`);
-        remove.onclick = async () => {
-            if (!confirm(`Delete “${code.title}” from your collection?`)) return;
-            remove.disabled = true;
-            try {
-                await api(`/api/codes/${code.id}`, { method: 'DELETE' });
-                codes = codes.filter(item => item.id !== code.id);
-                if (selectedId === code.id) codes.length ? selectCode(codes[0]) : clearPreview();
-                renderHistory();
-            } catch (error) {
-                historyMessage.hidden = false;
-                historyMessage.textContent = error.message;
-                remove.disabled = false;
-            }
-        };
-        buttons.append(open, remove);
-        actions.append(date, buttons);
-        card.append(image, details, actions);
-        history.append(card);
-    }
-}
+        def connection():
+            if 'db' not in g:
+                g.db = psycopg.connect(
+                    database_url,
+                    row_factory=dict_row
+                )
+            return g.db
 
-form.addEventListener('submit', async event => {
-    event.preventDefault();
-    submit.disabled = true;
-    message.textContent = 'Creating your code…';
-    try {
-        const code = await api('/api/codes', {
-            method: 'POST',
-            body: JSON.stringify(Object.fromEntries(new FormData(form)))
-        });
-        codes.unshift(code);
-        selectCode(code);
-        renderHistory();
-        message.textContent = 'Created and saved.';
-    } catch (error) {
-        message.textContent = error.message;
-    } finally {
-        submit.disabled = false;
-    }
-});
+    @app.before_request
+    def identify():
+        token = request.cookies.get('qr_visitor', '')
+        if not re.fullmatch(r'[a-f0-9]{64}', token):
+            token = secrets.token_hex(32)
+        g.visitor = token
+        g.owner = hashlib.sha256(token.encode()).hexdigest()
+        if request.method in ('POST', 'DELETE') and request.headers.get('X-QR-Request') != '1':
+            return jsonify(error='Invalid request.'), 403
 
-document.querySelector('#qr-image').addEventListener('error', () => {
-    message.textContent = 'The image could not load. Reopen this saved code to try again.';
-});
+    @app.after_request
+    def headers(response):
+        response.set_cookie('qr_visitor', g.visitor, max_age=60 * 60 * 24 * 365,
+                            httponly=True, secure=os.environ.get('COOKIE_SECURE') == '1',
+                            samesite='Lax')
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Referrer-Policy'] = 'same-origin'
+        response.headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+        return response
 
-async function loadHistory() {
-    try {
-        codes = await api('/api/codes');
-        renderHistory();
-        if (codes.length) selectCode(codes[0]);
-    } catch (error) {
-        historyMessage.textContent = 'Could not load your collection. Refresh to try again.';
-    }
-}
-loadHistory();
+    @app.teardown_appcontext
+    def close_db(error):
+        db = g.pop('db', None)
+        if db:
+            db.close()
+
+    @app.get('/')
+    def index():
+        return render_template('index.html')
+
+    @app.get('/api/codes')
+    def history():
+        rows = connection().execute(
+            'SELECT id, title, url, color, created FROM codes WHERE owner = %s ORDER BY created DESC',
+            (g.owner,)
+        )
+        return jsonify([dict(row) for row in rows])
+
+    @app.post('/api/codes')
+    def create():
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify(error='Send a valid URL.'), 400
+        url = data.get('url', '')
+        title = data.get('title', '')
+        color = data.get('color', '#172329')
+        if not all(isinstance(value, str) for value in (url, title, color)):
+            return jsonify(error='Invalid input.'), 400
+        url, title = url.strip(), title.strip()
+        if not url or len(url.encode('utf-8')) > 1500 or any(c.isspace() or ord(c) < 32 for c in url):
+            return jsonify(error='Enter a URL without spaces, up to 1,500 bytes.'), 400
+        if '://' not in url:
+            url = 'https://' + url
+        try:
+            parsed = urlsplit(url)
+            if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password:
+                raise ValueError()
+            parsed.port
+        except ValueError:
+            return jsonify(error='Enter a valid http or https URL without login details.'), 400
+        if color not in ('#172329', '#174f43', '#203d80', '#793442') or len(title) > 80:
+            return jsonify(error='Choose a supported color and a title under 81 characters.'), 400
+        db = connection()
+        if db.execute(
+            'SELECT COUNT(*) FROM codes WHERE owner = %s',
+            (g.owner,)
+        ).fetchone()['count'] >= 500:
+            return jsonify(error='Your history is full. Delete an old code first.'), 400
+        item = dict(id=secrets.token_hex(16), title=title or parsed.hostname,
+                    url=url, color=color, created=datetime.now(timezone.utc).isoformat())
+        db.execute('INSERT INTO codes VALUES (%s, %s, %s, %s, %s, %s)',
+                   (item['id'], g.owner, item['title'], url, color, item['created']))
+        db.commit()
+        return jsonify(item), 201
+
+    @app.get('/api/codes/<code_id>/<filetype>')
+    def download(code_id, filetype):
+        row = connection().execute(
+            'SELECT * FROM codes WHERE id = %s AND owner = %s',
+            (code_id, g.owner)
+        ).fetchone()
+        if row is None or filetype not in ('png', 'svg'):
+            return jsonify(error='Code not found.'), 404
+        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=16, border=4)
+        qr.add_data(row['url'])
+        qr.make(fit=True)
+        output = io.BytesIO()
+        if filetype == 'svg':
+            # SvgPathFillImage retains an opaque white quiet zone.
+            image = qr.make_image(image_factory=qrcode.image.svg.SvgPathFillImage)
+            image.save(output)
+            svg = output.getvalue().replace(b'fill="#000000"', ('fill="' + row['color'] + '"').encode())
+            output = io.BytesIO(svg)
+        else:
+            qr.make_image(fill_color=row['color'], back_color='white').save(output, format='PNG')
+        output.seek(0)
+        return send_file(output, mimetype='image/svg+xml' if filetype == 'svg' else 'image/png',
+                         as_attachment=request.args.get('download') == '1', download_name=f'qr-{code_id[:8]}.{filetype}')
+
+    @app.delete('/api/codes/<code_id>')
+    def delete(code_id):
+        db = connection()
+        cursor = db.execute(
+            'DELETE FROM codes WHERE id = %s AND owner = %s',
+            (code_id, g.owner)
+        )
+        db.commit()
+        return (jsonify(ok=True), 200) if cursor.rowcount else (jsonify(error='Code not found.'), 404)
+
+    return app
+
+
+app = create_app()
+
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=5000)
