@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10231f">
+    <meta name="description" content="Create, download and keep your custom QR codes in one place.">
+    <title>Qrplease — Free QR Code Generator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        
+        <div class="brand">
+            <span class="brand-mark" aria-hidden="true">q</span>
+            qrplease.
+        </div>
+    </header>
+    <main>
+        <div class="page-heading"><div><p class="eyebrow">TRANSMISSION / QR GENERATOR</p><h1>Your link,<br>in orbit.</h1></div><span class="edition">NO. 001 <span>/</span> SIGNAL MAKER</span></div>
+        <section class="workspace" aria-label="QR code maker">
+            <form id="generator">
+                <div class="section-heading"><span class="step">01</span><h2>The destination</h2></div>
+                <label for="url">Website URL</label>
+                <input id="url" name="url" type="text" inputmode="url" placeholder="yourwebsite.com" required maxlength="1500" autocomplete="url" spellcheck="false" aria-describedby="url-hint">
+                <p class="hint" id="url-hint">Paste a link. We’ll turn it into something scannable.</p>
+                <label for="title">Name <span class="optional">optional</span></label>
+                <input id="title" name="title" placeholder="e.g. My portfolio" maxlength="80">
+                <fieldset><legend>Signal color</legend><div class="colors">
+                    <label class="color-choice"><input type="radio" name="color" value="#174f43" checked><span class="swatch forest"></span><span>Ion green</span></label>
+                </div></fieldset>
+                <button class="primary" id="generate" type="submit">Create QR code <span>＋</span></button>
+                <p class="save-note">Automatically saved for your next visit.</p>
+                <p id="form-message" role="status" aria-live="polite"></p>
+            </form>
+            <div class="preview-panel">
+                <div class="preview-top"><span class="eyebrow">THE FINISHED PIECE</span><span id="preview-status">READY WHEN YOU ARE</span></div>
+                <div class="paper" id="paper">
+                    <div id="empty-preview"><span class="empty-symbol">＋</span><h3>A new connection<br>starts here.</h3><p>Your QR code will appear here.</p></div>
+                    <img id="qr-image" alt="Your generated QR code" hidden>
+                </div>
+                <div class="preview-caption"><h3 id="preview-title">Your next QR code</h3><p id="preview-url">Add a URL to get started.</p></div>
+                <div class="download-actions"><a id="png-download" class="download disabled" aria-disabled="true">Download PNG</a><a id="svg-download" class="download secondary disabled" aria-disabled="true">SVG</a></div>
+            </div>
+        </section>
+        <section class="history-section" aria-labelledby="history-heading">
+            <div class="history-heading"><h2 id="history-heading">Your collection <span id="count">0</span></h2><p>Saved in this browser. Ready to use again.</p></div>
+            <p id="history-message" role="status">Loading your collection…</p>
+            <div id="history" class="history-grid"></div>
+        </section>
+    </main>
+    <footer><span>qr</span><span>MADE TO BE SCANNED</span></footer>
+</body>
+</html>
