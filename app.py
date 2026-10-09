@@ -18,22 +18,22 @@ def create_app(database=None):
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024
     database_url = os.environ["DATABASE_URL"]
 
-        with psycopg.connect(database_url) as db:
-            db.execute("""
-                CREATE TABLE IF NOT EXISTS codes (
-                    id TEXT PRIMARY KEY,
-                    owner TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    url TEXT NOT NULL,
-                    color TEXT NOT NULL,
-                    created TEXT NOT NULL
-                )
-            """)
-        
-            db.execute("""
-                CREATE INDEX IF NOT EXISTS codes_owner
-                ON codes(owner, created)
-            """)
+    with psycopg.connect(database_url) as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS codes (
+                id TEXT PRIMARY KEY,
+                owner TEXT NOT NULL,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                color TEXT NOT NULL,
+                created TEXT NOT NULL
+            )
+        """)
+
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS codes_owner
+            ON codes(owner, created)
+        """)
 
     def connection():
         if 'db' not in g:
