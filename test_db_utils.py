@@ -65,6 +65,7 @@ def test_app_does_not_connect_during_import_or_startup(monkeypatch):
 
 
 def test_unavailable_database_returns_nonrevealing_503(monkeypatch):
+    monkeypatch.setenv('DATABASE_URL', 'postgresql://example.invalid/test')
     app_module = importlib.import_module('app')
 
     def fail_connection(url):
