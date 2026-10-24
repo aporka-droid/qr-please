@@ -5,13 +5,13 @@ import re
 import secrets
 import hmac
 import psycopg
-from psycopg.rows import dict_row
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import qrcode
 import qrcode.image.svg
 from flask import Flask, g, jsonify, render_template, request, send_file
+from db_utils import bounded_transaction, connect_database
 
 # Storage quotas prevent visitors from bypassing per-browser limits by
 # discarding their anonymous cookie. Existing records are grandfathered in.
@@ -27,37 +27,10 @@ def create_app(database=None):
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024
     database_url = database or os.environ["DATABASE_URL"]
 
-    with psycopg.connect(database_url) as db:
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS codes (
-                id TEXT PRIMARY KEY,
-                owner TEXT NOT NULL,
-                title TEXT NOT NULL,
-                url TEXT NOT NULL,
-                color TEXT NOT NULL,
-                created TEXT NOT NULL,
-                expires_at TIMESTAMPTZ
-            )
-        """)
-
-        # Safe additive migration: existing records retain NULL expires_at.
-        # Nothing is deleted or expired during deployment.
-        db.execute("ALTER TABLE codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ")
-        db.execute("""
-            CREATE INDEX IF NOT EXISTS codes_owner
-            ON codes(owner, created)
-        """)
-        db.execute("""
-            CREATE INDEX IF NOT EXISTS codes_expires_at
-            ON codes(expires_at) WHERE expires_at IS NOT NULL
-        """)
-
+    # No SQL at import or cold start. Schema updates belong to migrate.py.
     def connection():
         if 'db' not in g:
-            g.db = psycopg.connect(
-                database_url,
-                row_factory=dict_row
-            )
+            g.db = connect_database(database_url)
         return g.db
 
     @app.before_request
@@ -93,8 +66,15 @@ def create_app(database=None):
     @app.teardown_appcontext
     def close_db(error):
         db = g.pop('db', None)
-        if db:
+        if db is not None:
             db.close()
+
+    @app.errorhandler(psycopg.OperationalError)
+    @app.errorhandler(psycopg.errors.QueryCanceled)
+    @app.errorhandler(psycopg.errors.LockNotAvailable)
+    def database_unavailable(error):
+        app.logger.warning('Database temporarily unavailable: %s', type(error).__name__)
+        return jsonify(error='Database temporarily unavailable. Please retry.'), 503
 
     @app.get('/')
     def index():
@@ -102,10 +82,12 @@ def create_app(database=None):
 
     @app.get('/api/codes')
     def history():
-        rows = connection().execute(
-            'SELECT id, title, url, color, created FROM codes WHERE owner = %s AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created DESC',
-            (g.owner,)
-        )
+        db = connection()
+        with bounded_transaction(db):
+            rows = db.execute(
+                'SELECT id, title, url, color, created FROM codes WHERE owner = %s AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created DESC',
+                (g.owner,),
+            ).fetchall()
         return jsonify([dict(row) for row in rows])
 
     @app.post('/api/codes')
@@ -135,7 +117,7 @@ def create_app(database=None):
         db = connection()
         # Serialize the COUNT + INSERT checks across serverless instances.
         # A single PostgreSQL lock covers both visitor and global quotas.
-        with db.transaction():
+        with bounded_transaction(db):
             db.execute('SELECT pg_advisory_xact_lock(%s)', (QUOTA_LOCK_ID,))
             visitor_count = db.execute(
                 'SELECT COUNT(*) AS count FROM codes WHERE owner = %s',
@@ -161,10 +143,12 @@ def create_app(database=None):
 
     @app.get('/api/codes/<code_id>/<filetype>')
     def download(code_id, filetype):
-        row = connection().execute(
-            'SELECT * FROM codes WHERE id = %s AND owner = %s AND (expires_at IS NULL OR expires_at > NOW())',
-            (code_id, g.owner)
-        ).fetchone()
+        db = connection()
+        with bounded_transaction(db):
+            row = db.execute(
+                'SELECT * FROM codes WHERE id = %s AND owner = %s AND (expires_at IS NULL OR expires_at > NOW())',
+                (code_id, g.owner),
+            ).fetchone()
         if row is None or filetype not in ('png', 'svg'):
             return jsonify(error='Code not found.'), 404
         qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=16, border=4)
@@ -186,12 +170,13 @@ def create_app(database=None):
     @app.delete('/api/codes/<code_id>')
     def delete(code_id):
         db = connection()
-        cursor = db.execute(
-            'DELETE FROM codes WHERE id = %s AND owner = %s',
-            (code_id, g.owner)
-        )
-        db.commit()
-        return (jsonify(ok=True), 200) if cursor.rowcount else (jsonify(error='Code not found.'), 404)
+        with bounded_transaction(db):
+            cursor = db.execute(
+                'DELETE FROM codes WHERE id = %s AND owner = %s',
+                (code_id, g.owner),
+            )
+            removed = cursor.rowcount
+        return (jsonify(ok=True), 200) if removed else (jsonify(error='Code not found.'), 404)
 
     @app.get('/api/cron/cleanup')
     def cleanup_expired_codes():
@@ -204,7 +189,7 @@ def create_app(database=None):
             return jsonify(error='Unauthorized.'), 401
 
         db = connection()
-        with db.transaction():
+        with bounded_transaction(db, query_timeout_ms=25_000):
             # Bounded batch prevents a large expiry backlog from timing out.
             deleted = db.execute(
                 """

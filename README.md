@@ -1,77 +1,82 @@
-# Ink — QR Studio
+# QR Please
 
-A responsive QR code maker with a Flask backend, Python QR generation and Neon PostgreSQL history. The frontend is plain HTML, CSS and JavaScript.
+A Flask + JavaScript QR code generator with anonymous, browser-scoped history stored in Neon PostgreSQL.
 
-## Run locally
+## Deployment architecture
 
-Requires Python 3.10 or newer.
+- **Production**: Vercel Flask Function, production Neon database, Vercel Firewall.
+- **Preview**: separate Neon development branch (never point Preview at production).
+- `DATABASE_URL` should use Neon's **pooled** connection string (host typically contains `-pooler`). Vercel functions are serverless; an in-process connection pool would be replicated across instances.
+- Each API request opens a connection only when it needs the database. Flask closes it at request teardown.
+- Connections use a 5-second connect timeout, auto-commit mode, and disabled automatic prepared statements for PgBouncer compatibility.
+- Reads and writes use explicit transactions with transaction-local statement (10 seconds) and lock (3 seconds) timeouts. Cleanup uses a 25-second statement timeout.
+- Database outages and statement/lock timeouts return JSON HTTP 503, without revealing the connection URL.
+- Application startup and static requests **do not connect to PostgreSQL or run migrations**.
 
-```sh
+## Database migrations
+
+Schema changes are explicit. Run migrations on an isolated Neon branch first, review the data, then apply to production using the **direct (non-pooled)** Neon connection URL.
+
+1. Set `MIGRATION_DATABASE_URL` as a temporary environment variable containing that branch's **direct** Neon connection string. Never commit, log or paste this value into GitHub.
+2. Run `python migrate.py --apply`.
+3. Verify the expected `codes` table and `expires_at` column, and confirm existing rows remain unchanged.
+
+The migration is additive and idempotent: it creates a missing table, adds `expires_at` if needed, and creates indexes if missing. It does not delete any records.
+
+After migrations, set Vercel `DATABASE_URL` separately for **Preview** and **Production**, using the matching branch's **pooled** Neon URL. Changes to Vercel environment variables require a fresh deployment to affect running functions.
+
+## Local development
+
+Use Python 3.12 or newer.
+
+```bash
 python -m venv .venv
+# Activate your platform's virtual environment
+pip install -r requirements.txt
 ```
 
-Activate the environment:
+Set `DATABASE_URL` locally to a non-production **pooled** Neon URL, then run:
 
-- macOS / Linux: `source .venv/bin/activate`
-- Windows PowerShell: `.venv\Scripts\Activate.ps1`
-
-```sh
-pip install -r requirements.txt
+```bash
 python app.py
 ```
 
-Open http://127.0.0.1:5000 in your browser.
+Visit http://127.0.0.1:5000. Use `COOKIE_SECURE=1` only on HTTPS; it is enabled in Vercel Production.
 
-## Features
+## Testing
 
-- URL input, optional name and four scan-friendly ink colors.
-- Python-generated PNG and SVG downloads with a white quiet zone.
-- Automatic saved history, reopening and deletion.
-- Responsive layout, keyboard controls, error and empty states.
-- Parameterized database queries and visitor-scoped access to every saved code.
-
-## How history works
-
-Records are stored in Neon PostgreSQL. A random, HTTP-only browser cookie identifies the visitor and lasts one year, refreshed on visits. Only its SHA-256 hash is stored with records. Returning with the same browser cookie restores history, including after a server restart. Different browser profiles get separate collections.
-
-This is anonymous browser-based history, not an account system. Clearing cookies loses access to the previous collection. It does not sync across devices. Treat the cookie as a private access key; URLs may contain sensitive information. The site never fetches submitted URLs. Codes are static: the encoded URL cannot be changed after download.
-
-## Production deployment
-
-Use a Python-capable host with a persistent disk. On Linux:
-
-```sh
-DATA_DIR=/var/lib/qr-studio COOKIE_SECURE=1 gunicorn --workers 2 --bind 0.0.0.0:8000 app:app
-```
-
-Create the data directory and give the application user write access. Terminate HTTPS at the hosting platform or reverse proxy. `COOKIE_SECURE=1` requires HTTPS; leave it unset for local HTTP development. Back up the SQLite database. Keep all workers on the same persistent disk; ephemeral/serverless disks will lose history. For a large public deployment, add request rate limiting at the proxy and move to an account system and managed database as needed. The included Flask development server is for local use.
-
-## Checks
-
-```sh
+```bash
 pip install pytest
-pytest -q
+pytest -q test_db_utils.py
 ```
 
-Tests cover generation, persistence across application restarts, visitor isolation, downloads, validation and deletion.
+These regression tests do not contact Neon and check timeout configuration, transaction-local settings, lazy startup, and database error handling.
 
+For PostgreSQL integration tests, set `TEST_DATABASE_URL` to a **dedicated disposable Neon development branch's direct connection URL**. It must differ from `DATABASE_URL`, and it must never point to production. Then run:
 
-## Storage quotas and retention
+```bash
+pytest -q test_app.py
+```
 
-- Up to 500 saved QR records per visitor.
-- A site-wide cap of 20,000 saved records.
-- New QR records expire after 365 days; existing records have no expiry date and are not deleted automatically.
-- A daily Vercel Cron job calls `/api/cron/cleanup` at 04:00 UTC. Vercel must supply `CRON_SECRET` in the Authorization header. The job deletes at most 1,000 expired rows per run.
-- Once a saved record expires, it disappears from the user's collection and cannot be downloaded again from the application. Previously downloaded QR image files continue to work because they embed the destination URL directly.
+The integration suite runs the additive migration and creates/deletes its own test records. It covers visitor isolation, PNG/SVG output, validation, quotas, and expiration visibility.
 
-## Database configuration and tests
+## History, privacy, and retention
 
-Set `DATABASE_URL` for Production to the production Neon branch. Set a *separate* Preview `DATABASE_URL` to the Neon development branch; never point Preview at Production.
+An anonymous, random HttpOnly cookie identifies each browser. Only its SHA-256 hash is stored as the record owner. Saved history does not sync across devices; losing the cookie loses access to the collection.
 
-Tests are integration tests against PostgreSQL, not SQLite. Set `TEST_DATABASE_URL` to an isolated disposable Neon development branch and run `python -m pytest -q`. Do not use the Production branch for `TEST_DATABASE_URL`; the tests create and delete their own temporary QR records.
+- Up to 500 saved records per visitor.
+- Site-wide capacity limit of 20,000 records.
+- New saved records expire after **365 days**. Earlier records retain their NULL expiration and are not removed by automatic cleanup.
+- Vercel Cron calls `GET /api/cron/cleanup` at **04:00 UTC daily**. It requires `CRON_SECRET` in the bearer token and removes at most 1,000 expired rows in one run.
+- Previously downloaded QR images still work after record expiration because they encode the URL directly. Saved record downloads no longer work once expired.
+- The application does not fetch the destination URLs. URLs submitted for generation might themselves contain sensitive query strings; do not use QR Please to store secrets.
 
-The `app.py` import initializes the schema, so ensure that the database credentials point to the intended branch before running tests or deploying.
+## Required Production variables
 
-## Hosting
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Pooled Neon production branch URL |
+| `COOKIE_SECURE` | Set to `1` for HTTPS-only cookies |
+| `CRON_SECRET` | Strong random secret for scheduled cleanup |
 
-Deploy on Vercel with Python/Flask and a Neon PostgreSQL database. Configure `DATABASE_URL`, `CRON_SECRET`, and `COOKIE_SECURE=1` in production. For Preview deployments, use a non-production database.
+Do not set `MIGRATION_DATABASE_URL` in Vercel: it is only for one-off manual migrations and should use a direct connection.
