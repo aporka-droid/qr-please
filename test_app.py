@@ -59,7 +59,7 @@ def test_persistence_downloads_and_isolation(app):
     code_id = item['id']
     try:
         assert item['url'] == 'https://example.com'
-        assert owner.get(f'/api/codes/{code_id}/png').data.startswith(b'\\x89PNG')
+        assert owner.get(f'/api/codes/{code_id}/png').data.startswith(b'\x89PNG')
         svg = owner.get(f'/api/codes/{code_id}/svg?download=1')
         assert b'<svg' in svg.data
         assert 'attachment' in svg.headers['Content-Disposition']
