@@ -76,6 +76,20 @@ def create_app(database=None):
         app.logger.warning('Database temporarily unavailable: %s', type(error).__name__)
         return jsonify(error='Database temporarily unavailable. Please retry.'), 503
 
+    # TEMPORARY preview-only diagnostic; remove before merging PR #2.
+    if os.environ.get('VERCEL_ENV') == 'preview':
+        @app.get('/__temporary_pooler_check')
+        def _temporary_pooler_check():
+            from urllib.parse import urlsplit
+            hostname = (urlsplit(database_url).hostname or '').lower()
+            db = connection()
+            with bounded_transaction(db):
+                alive = db.execute('SELECT 1 AS ok').fetchone()['ok'] == 1
+            return jsonify(
+                database_reachable=alive,
+                neon_pooled_host=('-pooler.' in hostname or hostname.endswith('-pooler')),
+            )
+
     @app.get('/')
     def index():
         return render_template('index.html')
