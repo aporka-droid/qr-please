@@ -26,8 +26,10 @@ def test_url():
 
 @pytest.fixture(scope='module')
 def app_module(test_url):
-    # The module's global "app" initializes its schema at import time.
-    # Set DATABASE_URL to the test branch *before* importing it.
+    # Migrations run explicitly against this isolated test branch.
+    # Importing Flask no longer performs any schema DDL.
+    from migrate import migrate_schema
+    migrate_schema(test_url)
     os.environ['DATABASE_URL'] = test_url
     return importlib.import_module('app')
 
