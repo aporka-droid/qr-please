@@ -25,7 +25,7 @@ QUOTA_LOCK_ID = 432741901  # stable PostgreSQL transaction advisory lock
 def create_app(database=None):
     app = Flask(__name__)
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024
-    database_url = os.environ["DATABASE_URL"]
+    database_url = database or os.environ["DATABASE_URL"]
 
     with psycopg.connect(database_url) as db:
         db.execute("""
@@ -153,9 +153,9 @@ def create_app(database=None):
             db.execute(
                 """
                 INSERT INTO codes (id, owner, title, url, color, created, expires_at)
-                VALUES (%s, %s, %s, %s, %s, %s, NOW() + INTERVAL '365 days')
+                VALUES (%s, %s, %s, %s, %s, %s, NOW() + %s * INTERVAL '1 day')
                 """,
-                (item['id'], g.owner, item['title'], url, color, item['created'])
+                (item['id'], g.owner, item['title'], url, color, item['created'], RETENTION_DAYS)
             )
         return jsonify(item), 201
 
