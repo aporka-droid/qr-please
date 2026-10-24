@@ -3,6 +3,7 @@ import io
 import os
 import re
 import secrets
+import hmac
 import psycopg
 from psycopg.rows import dict_row
 from datetime import datetime, timezone
@@ -11,6 +12,14 @@ from urllib.parse import urlsplit
 import qrcode
 import qrcode.image.svg
 from flask import Flask, g, jsonify, render_template, request, send_file
+
+# Storage quotas prevent visitors from bypassing per-browser limits by
+# discarding their anonymous cookie. Existing records are grandfathered in.
+MAX_CODES_PER_VISITOR = 500
+MAX_CODES_TOTAL = 20_000
+RETENTION_DAYS = 365
+CLEANUP_BATCH_SIZE = 1_000
+QUOTA_LOCK_ID = 432741901  # stable PostgreSQL transaction advisory lock
 
 
 def create_app(database=None):
@@ -26,13 +35,21 @@ def create_app(database=None):
                 title TEXT NOT NULL,
                 url TEXT NOT NULL,
                 color TEXT NOT NULL,
-                created TEXT NOT NULL
+                created TEXT NOT NULL,
+                expires_at TIMESTAMPTZ
             )
         """)
 
+        # Safe additive migration: existing records retain NULL expires_at.
+        # Nothing is deleted or expired during deployment.
+        db.execute("ALTER TABLE codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ")
         db.execute("""
             CREATE INDEX IF NOT EXISTS codes_owner
             ON codes(owner, created)
+        """)
+        db.execute("""
+            CREATE INDEX IF NOT EXISTS codes_expires_at
+            ON codes(expires_at) WHERE expires_at IS NOT NULL
         """)
 
     def connection():
@@ -86,7 +103,7 @@ def create_app(database=None):
     @app.get('/api/codes')
     def history():
         rows = connection().execute(
-            'SELECT id, title, url, color, created FROM codes WHERE owner = %s ORDER BY created DESC',
+            'SELECT id, title, url, color, created FROM codes WHERE owner = %s AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created DESC',
             (g.owner,)
         )
         return jsonify([dict(row) for row in rows])
@@ -116,22 +133,36 @@ def create_app(database=None):
         if color not in ('#172329', '#174f43', '#203d80', '#793442') or len(title) > 80:
             return jsonify(error='Choose a supported color and a title under 81 characters.'), 400
         db = connection()
-        if db.execute(
-            'SELECT COUNT(*) FROM codes WHERE owner = %s',
-            (g.owner,)
-        ).fetchone()['count'] >= 500:
-            return jsonify(error='Your history is full. Delete an old code first.'), 400
-        item = dict(id=secrets.token_hex(16), title=title or parsed.hostname,
-                    url=url, color=color, created=datetime.now(timezone.utc).isoformat())
-        db.execute('INSERT INTO codes VALUES (%s, %s, %s, %s, %s, %s)',
-                   (item['id'], g.owner, item['title'], url, color, item['created']))
-        db.commit()
+        # Serialize the COUNT + INSERT checks across serverless instances.
+        # A single PostgreSQL lock covers both visitor and global quotas.
+        with db.transaction():
+            db.execute('SELECT pg_advisory_xact_lock(%s)', (QUOTA_LOCK_ID,))
+            visitor_count = db.execute(
+                'SELECT COUNT(*) AS count FROM codes WHERE owner = %s',
+                (g.owner,)
+            ).fetchone()['count']
+            if visitor_count >= MAX_CODES_PER_VISITOR:
+                return jsonify(error='Your history is full. Delete an old code first.'), 400
+
+            total_count = db.execute('SELECT COUNT(*) AS count FROM codes').fetchone()['count']
+            if total_count >= MAX_CODES_TOTAL:
+                return jsonify(error='QR storage is temporarily full. Please try again later.'), 503
+
+            item = dict(id=secrets.token_hex(16), title=title or parsed.hostname,
+                        url=url, color=color, created=datetime.now(timezone.utc).isoformat())
+            db.execute(
+                """
+                INSERT INTO codes (id, owner, title, url, color, created, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW() + INTERVAL '365 days')
+                """,
+                (item['id'], g.owner, item['title'], url, color, item['created'])
+            )
         return jsonify(item), 201
 
     @app.get('/api/codes/<code_id>/<filetype>')
     def download(code_id, filetype):
         row = connection().execute(
-            'SELECT * FROM codes WHERE id = %s AND owner = %s',
+            'SELECT * FROM codes WHERE id = %s AND owner = %s AND (expires_at IS NULL OR expires_at > NOW())',
             (code_id, g.owner)
         ).fetchone()
         if row is None or filetype not in ('png', 'svg'):
@@ -161,6 +192,33 @@ def create_app(database=None):
         )
         db.commit()
         return (jsonify(ok=True), 200) if cursor.rowcount else (jsonify(error='Code not found.'), 404)
+
+    @app.get('/api/cron/cleanup')
+    def cleanup_expired_codes():
+        # Vercel Cron sends CRON_SECRET in the Authorization bearer header.
+        secret = os.environ.get('CRON_SECRET')
+        if not secret:
+            return jsonify(error='Cleanup is not configured.'), 503
+        provided = request.headers.get('Authorization', '')
+        if not hmac.compare_digest(provided, f'Bearer {secret}'):
+            return jsonify(error='Unauthorized.'), 401
+
+        db = connection()
+        with db.transaction():
+            # Bounded batch prevents a large expiry backlog from timing out.
+            deleted = db.execute(
+                """
+                WITH expired AS (
+                    SELECT id FROM codes
+                    WHERE expires_at <= NOW()
+                    ORDER BY expires_at
+                    LIMIT %s
+                )
+                DELETE FROM codes USING expired WHERE codes.id = expired.id
+                """,
+                (CLEANUP_BATCH_SIZE,)
+            ).rowcount
+        return jsonify(ok=True, deleted=deleted)
 
     return app
 
