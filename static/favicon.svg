@@ -1,4 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <circle cx="32" cy="32" r="29" fill="#d5fa70" stroke="#101c19" stroke-width="4"/>
-  <text x="32" y="47" text-anchor="middle" fill="#101c19" font-family="Georgia,serif" font-size="47" font-style="italic">q</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><title>QR Please</title><circle cx="32" cy="32" r="28" fill="#D5FA70" stroke="#101C19" stroke-width="3.5"/><text x="32" y="43" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-weight="700" font-size="45" fill="#101C19">q</text></svg>
