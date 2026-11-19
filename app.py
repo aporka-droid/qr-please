@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import io
 import os
@@ -22,10 +23,28 @@ CLEANUP_BATCH_SIZE = 1_000
 QUOTA_LOCK_ID = 432741901  # stable PostgreSQL transaction advisory lock
 
 
+def render_code(url, color, filetype):
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=16, border=4)
+    qr.add_data(url)
+    qr.make(fit=True)
+    output = io.BytesIO()
+    if filetype == 'svg':
+        # SvgPathFillImage retains an opaque white quiet zone.
+        image = qr.make_image(image_factory=qrcode.image.svg.SvgPathFillImage)
+        image.save(output)
+        svg = output.getvalue().replace(b'fill="#000000"', ('fill="' + color + '"').encode())
+        output = io.BytesIO(svg)
+    else:
+        qr.make_image(fill_color=color, back_color='white').save(output, format='PNG')
+    output.seek(0)
+    return output
+
+
 def create_app(database=None):
     app = Flask(__name__)
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024
-    database_url = database or os.environ["DATABASE_URL"]
+    preview_only = database is None and os.environ.get('VERCEL_ENV') == 'preview'
+    database_url = None if preview_only else database or os.environ["DATABASE_URL"]
 
     # No SQL at import or cold start. Schema updates belong to migrate.py.
     def connection():
@@ -78,10 +97,12 @@ def create_app(database=None):
 
     @app.get('/')
     def index():
-        return render_template('index.html')
+        return render_template('index.html', preview_only=preview_only)
 
     @app.get('/api/codes')
     def history():
+        if preview_only:
+            return jsonify([])
         db = connection()
         with bounded_transaction(db):
             rows = db.execute(
@@ -114,6 +135,13 @@ def create_app(database=None):
             return jsonify(error='Enter a valid http or https URL without login details.'), 400
         if color not in ('#172329', '#174f43', '#203d80', '#793442') or len(title) > 80:
             return jsonify(error='Choose a supported color and a title under 81 characters.'), 400
+        if preview_only:
+            return jsonify(
+                title=title or parsed.hostname, url=url,
+                images={kind: base64.b64encode(render_code(url, color, kind).getvalue()).decode('ascii')
+                        for kind in ('png', 'svg')},
+            ), 201
+
         db = connection()
         # Serialize the COUNT + INSERT checks across serverless instances.
         # A single PostgreSQL lock covers both visitor and global quotas.
@@ -143,6 +171,8 @@ def create_app(database=None):
 
     @app.get('/api/codes/<code_id>/<filetype>')
     def download(code_id, filetype):
+        if preview_only:
+            return jsonify(error='Code not found.'), 404
         db = connection()
         with bounded_transaction(db):
             row = db.execute(
@@ -151,24 +181,14 @@ def create_app(database=None):
             ).fetchone()
         if row is None or filetype not in ('png', 'svg'):
             return jsonify(error='Code not found.'), 404
-        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=16, border=4)
-        qr.add_data(row['url'])
-        qr.make(fit=True)
-        output = io.BytesIO()
-        if filetype == 'svg':
-            # SvgPathFillImage retains an opaque white quiet zone.
-            image = qr.make_image(image_factory=qrcode.image.svg.SvgPathFillImage)
-            image.save(output)
-            svg = output.getvalue().replace(b'fill="#000000"', ('fill="' + row['color'] + '"').encode())
-            output = io.BytesIO(svg)
-        else:
-            qr.make_image(fill_color=row['color'], back_color='white').save(output, format='PNG')
-        output.seek(0)
+        output = render_code(row['url'], row['color'], filetype)
         return send_file(output, mimetype='image/svg+xml' if filetype == 'svg' else 'image/png',
                          as_attachment=request.args.get('download') == '1', download_name=f'qr-{code_id[:8]}.{filetype}')
 
     @app.delete('/api/codes/<code_id>')
     def delete(code_id):
+        if preview_only:
+            return jsonify(error='Storage is disabled in this preview.'), 404
         db = connection()
         with bounded_transaction(db):
             cursor = db.execute(
@@ -180,6 +200,8 @@ def create_app(database=None):
 
     @app.get('/api/cron/cleanup')
     def cleanup_expired_codes():
+        if preview_only:
+            return jsonify(error='Storage is disabled in this preview.'), 404
         # Vercel Cron sends CRON_SECRET in the Authorization bearer header.
         secret = os.environ.get('CRON_SECRET')
         if not secret:

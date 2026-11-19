@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#10231f">
     <meta name="description" content="Create, download and keep your custom QR codes in one place.">
-    <title>Qrplease — Free QR Code Generator</title>
+    <title>QR Please — Free QR Code Generator</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}?v=20261030" sizes="any">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,7 +15,7 @@
 
 <style id="collection-brand-mark">.collection-mark{display:block;width:34px;height:34px;flex:0 0 34px;object-fit:contain;border:0;border-radius:0;background:transparent;box-shadow:none;padding:0;margin:0}</style>
 </head>
-<body>
+<body data-preview="{{ 'true' if preview_only else 'false' }}">
     <header class="topbar">
         
         <div class="brand">
@@ -24,7 +24,7 @@
         </div>
     </header>
     <main>
-        <div class="page-heading"><div><p class="eyebrow">TRANSMISSION / QR GENERATOR</p><h1>Your link,<br>in orbit.</h1></div><span class="edition">NO. 001 <span>/</span> SIGNAL MAKER</span></div>
+        <div class="page-heading"><div><p class="eyebrow">QR CODE GENERATOR</p><h1>Your link,<br>in orbit.</h1></div><span class="edition">NO. 001 <span>/</span> SIGNAL MAKER</span></div>
         <section class="workspace" aria-label="QR code maker">
             <form id="generator">
                 <div class="section-heading"><span class="step">01</span><h2>The destination</h2></div>
@@ -33,8 +33,11 @@
                 <p class="hint" id="url-hint">Paste a link. We’ll turn it into something scannable.</p>
                 <label for="title">Name <span class="optional">optional</span></label>
                 <input id="title" name="title" placeholder="e.g. My portfolio" maxlength="80">
-                <fieldset><legend>Signal color</legend><div class="colors">
-                    <label class="color-choice"><input type="radio" name="color" value="#174f43" checked><span class="swatch forest"></span><span>Ion green</span></label>
+                <fieldset><legend>QR code color</legend><div class="colors">
+                    <label class="color-choice"><input type="radio" name="color" value="#174f43" checked><span class="swatch forest" aria-hidden="true"></span><span>Forest green</span></label>
+                    <label class="color-choice"><input type="radio" name="color" value="#172329"><span class="swatch ink" aria-hidden="true"></span><span>Charcoal</span></label>
+                    <label class="color-choice"><input type="radio" name="color" value="#203d80"><span class="swatch blue" aria-hidden="true"></span><span>Navy</span></label>
+                    <label class="color-choice"><input type="radio" name="color" value="#793442"><span class="swatch berry" aria-hidden="true"></span><span>Berry</span></label>
                 </div></fieldset>
                 <button class="primary" id="generate" type="submit">Create QR code <span>＋</span></button>
                 <p id="form-message" role="status" aria-live="polite"></p>
@@ -45,16 +48,20 @@
                     <div id="empty-preview"><span class="empty-symbol">＋</span><h3>A new connection<br>starts here.</h3><p>Your QR code will appear here.</p></div>
                     <img id="qr-image" alt="Your generated QR code" hidden>
                 </div>
-                <div class="preview-caption"><h3 id="preview-title">Your next QR code</h3><p id="preview-url">Add a URL to get started.</p></div>
+                <div class="preview-caption"><h3 id="preview-title">QR code preview</h3><p id="preview-url">Add a URL to get started.</p></div>
                 <div class="download-actions"><a id="png-download" class="download disabled" aria-disabled="true">Download PNG</a><a id="svg-download" class="download secondary disabled" aria-disabled="true">SVG</a></div>
             </div>
         </section>
+        {% if preview_only %}
+        <p class="save-note">Preview mode. Download your QR code to keep it.</p>
+        {% else %}
         <section class="history-section" aria-labelledby="history-heading">
             <div class="history-heading"><h2 id="history-heading">Your collection <span id="count">0</span></h2><p>New QR codes stay saved for one year. Downloaded QR images keep working.</p></div>
             <p id="history-message" role="status">Loading your collection…</p>
             <div id="history" class="history-grid"></div>
         </section>
+        {% endif %}
     </main>
-    <footer><span>qr-please</span><a href="https://github.com/aporka-droid/qr-please" target="_blank" rel="noopener noreferrer">GitHub</a></footer>
+    <footer><a href="https://please.aporka.dev/">All Please apps</a><a href="https://github.com/aporka-droid/qr-please" target="_blank" rel="noopener noreferrer">GitHub</a></footer>
 </body>
 </html>

@@ -131,3 +131,16 @@ footer span:first-child { color: var(--signal); font-weight: 700; }
     font-style: italic;
     color: var(--bg);
 }
+
+.colors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.color-choice { min-height: 44px; }
+.color-choice .swatch { flex: 0 0 22px; }
+.color-choice .ink { background: #172329; }
+.color-choice .blue { background: #203d80; }
+.color-choice .berry { background: #793442; }
+input:checked + .swatch { outline: 2px solid var(--signal); box-shadow: none; }
+input:focus-visible + .swatch { outline: 3px solid var(--mint); outline-offset: 3px; }
+@media (max-width: 600px) {
+    #generator input:not([type="radio"]) { font-size: 16px; }
+    .card-actions button { min-height: 44px; }
+}

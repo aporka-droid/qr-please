@@ -3,6 +3,7 @@ const submit = document.querySelector('#generate');
 const message = document.querySelector('#form-message');
 const history = document.querySelector('#history');
 const historyMessage = document.querySelector('#history-message');
+const previewOnly = document.body.dataset.preview === 'true';
 let codes = [];
 let selectedId = null;
 
@@ -16,18 +17,25 @@ async function api(path, options = {}) {
     return data;
 }
 
+function codeImage(code, type) {
+    if (!previewOnly) return `/api/codes/${code.id}/${type}`;
+    const mime = type === 'svg' ? 'image/svg+xml' : 'image/png';
+    return `data:${mime};base64,${code.images[type]}`;
+}
+
 function selectCode(code) {
     selectedId = code.id;
     const image = document.querySelector('#qr-image');
-    image.src = `/api/codes/${code.id}/png`;
+    image.src = codeImage(code, 'png');
     image.hidden = false;
     document.querySelector('#empty-preview').hidden = true;
     document.querySelector('#preview-title').textContent = code.title;
     document.querySelector('#preview-url').textContent = code.url;
-    document.querySelector('#preview-status').textContent = 'SAVED TO COLLECTION';
+    document.querySelector('#preview-status').textContent = previewOnly ? 'READY TO DOWNLOAD' : 'SAVED TO COLLECTION';
     for (const type of ['png', 'svg']) {
         const link = document.querySelector(`#${type}-download`);
-        link.href = `/api/codes/${code.id}/${type}?download=1`;
+        link.href = previewOnly ? codeImage(code, type) : `/api/codes/${code.id}/${type}?download=1`;
+        if (previewOnly) link.download = `qr-code.${type}`;
         link.classList.remove('disabled');
         link.removeAttribute('aria-disabled');
     }
@@ -37,7 +45,7 @@ function clearPreview() {
     selectedId = null;
     document.querySelector('#qr-image').hidden = true;
     document.querySelector('#empty-preview').hidden = false;
-    document.querySelector('#preview-title').textContent = 'Your next QR code';
+    document.querySelector('#preview-title').textContent = 'QR code preview';
     document.querySelector('#preview-url').textContent = 'Add a URL to get started.';
     document.querySelector('#preview-status').textContent = 'READY WHEN YOU ARE';
     for (const type of ['png', 'svg']) {
@@ -113,10 +121,12 @@ form.addEventListener('submit', async event => {
             method: 'POST',
             body: JSON.stringify(Object.fromEntries(new FormData(form)))
         });
-        codes.unshift(code);
         selectCode(code);
-        renderHistory();
-        message.textContent = 'Created and saved.';
+        if (!previewOnly) {
+            codes.unshift(code);
+            renderHistory();
+        }
+        message.textContent = previewOnly ? 'Created. Choose PNG or SVG to download.' : 'Created and saved.';
     } catch (error) {
         message.textContent = error.message;
     } finally {
@@ -125,7 +135,7 @@ form.addEventListener('submit', async event => {
 });
 
 document.querySelector('#qr-image').addEventListener('error', () => {
-    message.textContent = 'The image could not load. Reopen this saved code to try again.';
+    message.textContent = previewOnly ? 'The image could not load. Create the code again.' : 'The image could not load. Reopen this saved code to try again.';
 });
 
 async function loadHistory() {
@@ -137,4 +147,4 @@ async function loadHistory() {
         historyMessage.textContent = 'Could not load your collection. Refresh to try again.';
     }
 }
-loadHistory();
+if (!previewOnly) loadHistory();
