@@ -24,10 +24,10 @@
         </div>
     </header>
     <main>
-        <div class="page-heading"><div><p class="eyebrow">QR CODE GENERATOR</p><h1>Your link,<br>in orbit.</h1></div><span class="edition">NO. 001 <span>/</span> SIGNAL MAKER</span></div>
+        <div class="page-heading"><div><p class="eyebrow">QR CODE GENERATOR</p><h1>Create a QR code</h1></div><span class="edition">NO. 001 <span>/</span> SIGNAL MAKER</span></div>
         <section class="workspace" aria-label="QR code maker">
             <form id="generator">
-                <div class="section-heading"><span class="step">01</span><h2>The destination</h2></div>
+                <div class="section-heading"><span class="step">01</span><h2>Enter a website URL</h2></div>
                 <label for="url">Website URL</label>
                 <input id="url" name="url" type="text" inputmode="url" placeholder="yourwebsite.com" required maxlength="1500" autocomplete="url" spellcheck="false" aria-describedby="url-hint">
                 <p class="hint" id="url-hint">Paste a link. We’ll turn it into something scannable.</p>
@@ -45,7 +45,7 @@
             <div class="preview-panel">
                 <div class="preview-top"><span class="eyebrow">THE FINISHED PIECE</span><span id="preview-status">READY WHEN YOU ARE</span></div>
                 <div class="paper" id="paper">
-                    <div id="empty-preview"><span class="empty-symbol">＋</span><h3>A new connection<br>starts here.</h3><p>Your QR code will appear here.</p></div>
+                    <div id="empty-preview"><span class="empty-symbol">＋</span><h3>No QR code yet</h3><p>Your QR code will appear here.</p></div>
                     <img id="qr-image" alt="Your generated QR code" hidden>
                 </div>
                 <div class="preview-caption"><h3 id="preview-title">QR code preview</h3><p id="preview-url">Add a URL to get started.</p></div>
@@ -56,7 +56,7 @@
         <p class="save-note">Preview mode. Download your QR code to keep it.</p>
         {% else %}
         <section class="history-section" aria-labelledby="history-heading">
-            <div class="history-heading"><h2 id="history-heading">Your collection <span id="count">0</span></h2><p>New QR codes stay saved for one year. Downloaded QR images keep working.</p></div>
+            <div class="history-heading"><h2 id="history-heading">Saved QR codes <span id="count">0</span></h2><p>New QR codes stay saved for one year. Downloaded QR images keep working.</p></div>
             <p id="history-message" role="status">Loading your collection…</p>
             <div id="history" class="history-grid"></div>
         </section>
