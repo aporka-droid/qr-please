@@ -24,13 +24,13 @@
         </div>
     </header>
     <main>
-        <div class="page-heading"><div><p class="eyebrow">QR CODE GENERATOR</p><h1>Create a QR code</h1></div><span class="edition">NO. 001 <span>/</span> SIGNAL MAKER</span></div>
+        <div class="page-heading"><div><h1>Create a QR code</h1></div><span class="edition">NO. 001 <span>/</span> SIGNAL MAKER</span></div>
         <section class="workspace" aria-label="QR code maker">
             <form id="generator">
                 <div class="section-heading"><span class="step">01</span><h2>Enter a website URL</h2></div>
                 <label for="url">Website URL</label>
                 <input id="url" name="url" type="text" inputmode="url" placeholder="yourwebsite.com" required maxlength="1500" autocomplete="url" spellcheck="false" aria-describedby="url-hint">
-                <p class="hint" id="url-hint">Paste a link. We’ll turn it into something scannable.</p>
+                <p class="hint" id="url-hint">Enter the link your QR code should open.</p>
                 <label for="title">Name <span class="optional">optional</span></label>
                 <input id="title" name="title" placeholder="e.g. My portfolio" maxlength="80">
                 <fieldset><legend>QR code color</legend><div class="colors">
@@ -43,12 +43,12 @@
                 <p id="form-message" role="status" aria-live="polite"></p>
             </form>
             <div class="preview-panel">
-                <div class="preview-top"><span class="eyebrow">THE FINISHED PIECE</span><span id="preview-status">READY WHEN YOU ARE</span></div>
+                <div class="preview-top"><span id="preview-status"></span></div>
                 <div class="paper" id="paper">
-                    <div id="empty-preview"><span class="empty-symbol">＋</span><h3>No QR code yet</h3><p>Your QR code will appear here.</p></div>
+                    <div id="empty-preview"><span class="empty-symbol">＋</span><h3>No QR code yet</h3></div>
                     <img id="qr-image" alt="Your generated QR code" hidden>
                 </div>
-                <div class="preview-caption"><h3 id="preview-title">QR code preview</h3><p id="preview-url">Add a URL to get started.</p></div>
+                <div class="preview-caption"><h3 id="preview-title">QR code preview</h3><p id="preview-url"></p></div>
                 <div class="download-actions"><a id="png-download" class="download disabled" aria-disabled="true">Download PNG</a><a id="svg-download" class="download secondary disabled" aria-disabled="true">SVG</a></div>
             </div>
         </section>

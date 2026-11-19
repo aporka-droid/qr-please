@@ -46,8 +46,8 @@ function clearPreview() {
     document.querySelector('#qr-image').hidden = true;
     document.querySelector('#empty-preview').hidden = false;
     document.querySelector('#preview-title').textContent = 'QR code preview';
-    document.querySelector('#preview-url').textContent = 'Add a URL to get started.';
-    document.querySelector('#preview-status').textContent = 'READY WHEN YOU ARE';
+    document.querySelector('#preview-url').textContent = '';
+    document.querySelector('#preview-status').textContent = '';
     for (const type of ['png', 'svg']) {
         const link = document.querySelector(`#${type}-download`);
         link.removeAttribute('href');
